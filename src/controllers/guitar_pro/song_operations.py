@@ -28,6 +28,15 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
         """
         Create a new Guitar Pro song.
         
+        FIX: Song() already creates a valid song with:
+        - 1 track (6-string standard tuning guitar)
+        - 1 measure header
+        - 1 measure per track with 2 voices
+        
+        We just need to set the metadata and rename the track.
+        The original code added extra tracks and measure headers,
+        resulting in duplicate/corrupt data.
+        
         Args:
             title (str): Title for the new song
             artist (str): Artist name
@@ -36,39 +45,25 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
             bool: True if successful
         """
         try:
-            # Print debug info
-            print(f"Creating new song: {title} by {artist}")
-            
-            # Create a new song instance
+            # Create a new song instance - this already includes
+            # a valid track and measure structure
             self.current_song = Song()
             self.current_song.title = title
             self.current_song.artist = artist
             
-            # Print debug info
-            print("Song instance created successfully")
+            # Rename the default track
+            if self.current_song.tracks:
+                self.current_song.tracks[0].name = "Track 1"
+                self.current_song.tracks[0].channel.instrument = 25  # Overdriven Guitar
             
-            # Add a default track with 6 strings (standard guitar)
-            print("Adding track...")
-            track_index = self.add_track("Guitar")
-            print(f"Track added at index {track_index}")
-            
-            # Add a default measure header and measure
-            # This is necessary for a valid Guitar Pro song
-            print("Adding measure header...")
-            measure_index = self.add_measure_header()
-            print(f"Measure header added at index {measure_index}")
-            
-            # Set default tempo (120 BPM)
-            self.current_song.tempo = 120
-            print("Tempo set to 120 BPM")
-            
-            # Verify the song structure
-            print(f"Song has {len(self.current_song.tracks)} tracks and {len(self.current_song.measureHeaders)} measure headers")
+            logger.info(f"Created new song: {title} by {artist}")
+            logger.info(f"Tracks: {len(self.current_song.tracks)}, "
+                       f"Measures: {len(self.current_song.measureHeaders)}")
             
             return True
         except Exception as e:
             import traceback
-            print(f"Error creating new song: {e}")
+            logger.error(f"Error creating new song: {e}")
             traceback.print_exc()
             return False
             
@@ -76,15 +71,6 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
                            album: str = None, tempo: int = None) -> bool:
         """
         Set properties of the current song.
-        
-        Args:
-            title (str, optional): Title of the song
-            artist (str, optional): Artist name
-            album (str, optional): Album name
-            tempo (int, optional): Tempo in BPM
-            
-        Returns:
-            bool: True if successful, False otherwise
         """
         if self.current_song is None:
             print("No song loaded")
@@ -93,28 +79,19 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
         try:
             if title is not None:
                 self.current_song.title = title
-                
             if artist is not None:
                 self.current_song.artist = artist
-                
             if album is not None:
                 self.current_song.album = album
-                
             if tempo is not None:
                 self.current_song.tempo = tempo
-                
             return True
         except Exception as e:
             print(f"Error setting song properties: {e}")
             return False
             
     def get_song_statistics(self) -> Dict[str, Any]:
-        """
-        Get statistics about the current song.
-        
-        Returns:
-            dict: Song statistics
-        """
+        """Get statistics about the current song."""
         if self.current_song is None:
             return {"error": "No song loaded"}
             
@@ -155,19 +132,10 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
         return stats 
 
     def set_lyrics(self, lyrics: str) -> bool:
-        """
-        Set the lyrics for the current song.
-        
-        Args:
-            lyrics (str): The lyrics to set
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
+        """Set the lyrics for the current song."""
         if self.current_song is None:
             print("No song loaded")
             return False
-            
         try:
             self.current_song.lyrics = lyrics
             return True
@@ -176,17 +144,10 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
             return False
 
     def get_lyrics(self) -> str:
-        """
-        Get the lyrics of the current song.
-        
-        Returns:
-            str: The lyrics of the song, or an empty string if no song is loaded
-        """
+        """Get the lyrics of the current song."""
         if self.current_song is None:
             return ""
-            
         try:
-            # Extract lyrics from the song's lyrics object
             if self.current_song.lyrics:
                 lyrics_text = []
                 for line in self.current_song.lyrics.lines:
@@ -199,19 +160,10 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
             return ""
 
     def set_page_setup(self, page_setup: dict) -> bool:
-        """
-        Set the page setup for the current song.
-        
-        Args:
-            page_setup (dict): A dictionary containing page setup properties
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
+        """Set the page setup for the current song."""
         if self.current_song is None:
             print("No song loaded")
             return False
-            
         try:
             for key, value in page_setup.items():
                 setattr(self.current_song.pageSetup, key, value)
@@ -221,12 +173,7 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
             return False
 
     def get_page_setup(self) -> dict:
-        """
-        Get the page setup of the current song.
-        
-        Returns:
-            dict: A dictionary containing page setup properties, or an empty dict if no song is loaded
-        """
+        """Get the page setup of the current song."""
         if self.current_song is None:
             return {}
         return {
@@ -246,19 +193,10 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
         }
 
     def set_advanced_metadata(self, metadata: dict) -> bool:
-        """
-        Set advanced metadata for the current song.
-        
-        Args:
-            metadata (dict): A dictionary containing metadata properties
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
+        """Set advanced metadata for the current song."""
         if self.current_song is None:
             print("No song loaded")
             return False
-            
         try:
             for key, value in metadata.items():
                 setattr(self.current_song, key, value)
@@ -268,12 +206,7 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
             return False
 
     def get_advanced_metadata(self) -> dict:
-        """
-        Get advanced metadata of the current song.
-        
-        Returns:
-            dict: A dictionary containing metadata properties, or an empty dict if no song is loaded
-        """
+        """Get advanced metadata of the current song."""
         if self.current_song is None:
             return {}
         return {
@@ -287,75 +220,42 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
 
     def add_repeat_group(self, start_measure: int, end_measure: int, repeat_type: str = "normal", 
                         repeat_count: int = 2, endings: list = None) -> bool:
-        """
-        Add a repeat group to the song.
-        
-        Args:
-            start_measure (int): Index of the first measure in the repeat group
-            end_measure (int): Index of the last measure in the repeat group
-            repeat_type (str): Type of repeat ("normal", "alternate", "repeat")
-            repeat_count (int): Number of times to repeat
-            endings (list): List of ending numbers (e.g., [1, 2] for first and second endings)
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
+        """Add a repeat group to the song."""
         if self.current_song is None:
             print("No song loaded")
             return False
-            
         try:
-            # Create a new repeat group
             repeat_group = RepeatGroup()
-            
-            # Add the repeat group to the song
             self.current_song.repeatGroups.append(repeat_group)
             
-            # Update measure headers
             for i in range(start_measure, end_measure + 1):
                 if i < len(self.current_song.measureHeaders):
                     header = self.current_song.measureHeaders[i]
                     header.repeatGroup = repeat_group
-                    
-                    # Set repeat open for first measure
                     if i == start_measure:
                         header.isRepeatOpen = True
                         header.repeatClose = repeat_count
-                    
-                    # Set repeat close for last measure
                     if i == end_measure:
                         header.repeatClose = repeat_count
-                    
-                    # Set repeat alternatives if specified
                     if endings and i == end_measure:
                         header.repeatAlternative = max(endings)
-            
             return True
-            
         except Exception as e:
             print(f"Error adding repeat group: {e}")
             return False
 
     def get_repeat_groups(self) -> list:
-        """
-        Get all repeat groups in the song.
-        
-        Returns:
-            list: List of repeat groups with their properties
-        """
+        """Get all repeat groups in the song."""
         if self.current_song is None:
             return []
-            
         try:
             repeat_groups = []
             for group in self.current_song.repeatGroups:
-                # Find the measures that belong to this repeat group
                 measures = []
                 for i, header in enumerate(self.current_song.measureHeaders):
                     if header.repeatGroup == group:
                         measures.append(i)
                 
-                # Get repeat count from the first measure with repeat close
                 repeat_count = 0
                 for header in group.measureHeaders:
                     if header.repeatClose > 0:
@@ -363,40 +263,24 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
                         break
                 
                 repeat_groups.append({
-                    "type": "normal",  # PyGuitarPro doesn't have different repeat types
+                    "type": "normal",
                     "repeat_count": repeat_count,
                     "endings": [header.repeatAlternative for header in group.measureHeaders if header.repeatAlternative > 0],
                     "measures": measures,
                     "is_closed": group.isClosed
                 })
-            
             return repeat_groups
-            
         except Exception as e:
             print(f"Error getting repeat groups: {e}")
             return []
 
     def add_section(self, start_measure: int, end_measure: int, name: str, 
                    text: str = None, color: tuple = None) -> bool:
-        """
-        Add a section to the song.
-        
-        Args:
-            start_measure (int): Index of the first measure in the section
-            end_measure (int): Index of the last measure in the section
-            name (str): Name of the section (e.g., "Verse", "Chorus")
-            text (str, optional): Additional text for the section
-            color (tuple, optional): RGB color tuple for the section
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
+        """Add a section to the song."""
         if self.current_song is None:
             print("No song loaded")
             return False
-            
         try:
-            # Add section text to the first measure
             if start_measure < len(self.current_song.measureHeaders):
                 header = self.current_song.measureHeaders[start_measure]
                 header.text = name
@@ -404,32 +288,22 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
                     header.text += f"\n{text}"
                 if color:
                     header.color = color
-            
             return True
-            
         except Exception as e:
             print(f"Error adding section: {e}")
             return False
 
     def get_sections(self) -> list:
-        """
-        Get all sections in the song.
-        
-        Returns:
-            list: List of sections with their properties
-        """
+        """Get all sections in the song."""
         if self.current_song is None:
             return []
-            
         try:
             sections = []
             current_section = None
             
             for i, header in enumerate(self.current_song.measureHeaders):
-                # Check for section markers in the measure
                 section_text = None
                 
-                # Look for text in the measure
                 for track in self.current_song.tracks:
                     if i < len(track.measures):
                         measure = track.measures[i]
@@ -445,14 +319,12 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
                         if section_text:
                             break
                 
-                # Check for markers in the measure header
                 if not section_text and header.marker:
                     text = header.marker.title.lower()
                     if any(marker in text for marker in ['intro', 'verse', 'chorus', 'bridge', 'solo', 'outro', 'coda']):
                         section_text = header.marker.title
                 
                 if section_text:
-                    # Start a new section
                     if current_section is None or current_section["end_measure"] < i - 1:
                         if current_section is not None:
                             sections.append(current_section)
@@ -462,79 +334,49 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
                             "end_measure": i
                         }
                     else:
-                        # Extend current section
                         current_section["end_measure"] = i
             
-            # Add the last section if exists
             if current_section is not None:
                 sections.append(current_section)
-            
             return sections
-            
         except Exception as e:
             logger.error(f"Error getting sections: {e}")
             return []
 
     def add_coda(self, measure_index: int) -> bool:
-        """
-        Add a coda marker to a measure.
-        
-        Args:
-            measure_index (int): Index of the measure to add the coda
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
+        """Add a coda marker to a measure."""
         if self.current_song is None:
             print("No song loaded")
             return False
-            
         try:
             if measure_index < len(self.current_song.measureHeaders):
                 header = self.current_song.measureHeaders[measure_index]
                 header.isCoda = True
                 return True
             return False
-            
         except Exception as e:
             print(f"Error adding coda: {e}")
             return False
 
     def add_double_bar(self, measure_index: int) -> bool:
-        """
-        Add a double bar line to a measure.
-        
-        Args:
-            measure_index (int): Index of the measure to add the double bar
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
+        """Add a double bar line to a measure."""
         if self.current_song is None:
             print("No song loaded")
             return False
-            
         try:
             if measure_index < len(self.current_song.measureHeaders):
                 header = self.current_song.measureHeaders[measure_index]
                 header.isDoubleBar = True
                 return True
             return False
-            
         except Exception as e:
             print(f"Error adding double bar: {e}")
             return False
 
     def get_song_structure(self) -> dict:
-        """
-        Get the complete song structure including sections, repeats, and markers.
-        
-        Returns:
-            dict: Dictionary containing the song structure
-        """
+        """Get the complete song structure including sections, repeats, and markers."""
         if self.current_song is None:
             return {}
-            
         try:
             structure = {
                 "sections": self.get_sections(),
@@ -542,10 +384,8 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
                 "markers": []
             }
             
-            # Add markers from measures
             for track in self.current_song.tracks:
                 for measure_index, measure in enumerate(track.measures):
-                    # Check measure header marker
                     if measure.header.marker:
                         structure["markers"].append({
                             "type": "marker",
@@ -553,14 +393,12 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
                             "measure": measure_index
                         })
                     
-                    # Check for double bar
                     if measure.header.hasDoubleBar:
                         structure["markers"].append({
                             "type": "double_bar",
                             "measure": measure_index
                         })
                     
-                    # Check for text in beats
                     for voice in measure.voices:
                         for beat_index, beat in enumerate(voice.beats):
                             if beat.text:
@@ -570,17 +408,8 @@ class SongOperationsController(TrackOperationsController, MeasureOperationsContr
                                     "measure": measure_index,
                                     "beat": beat_index
                                 })
-                            
-                            # Check for direction signs
-                            if beat.voice.measure.header.direction:
-                                structure["markers"].append({
-                                    "type": "direction",
-                                    "text": beat.voice.measure.header.direction.name,
-                                    "measure": measure_index
-                                })
             
             return structure
-            
         except Exception as e:
             logger.error(f"Error getting song structure: {e}")
-            return {} 
+            return {}
