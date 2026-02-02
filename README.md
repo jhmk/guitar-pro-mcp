@@ -1,10 +1,10 @@
-# Guitar Pro MCP Server v2.0
+# Guitar Pro MCP Server v2.1
 
 Fast, optimized MCP server for Guitar Pro file manipulation with Claude AI.
 
 > **Note**: Currently, only Guitar Pro 5 (.gp5) format has been tested.
 
-## What's New in v2.0
+## What's New in v2.1
 
 ### 🚀 Batch Operations (10-50x faster!)
 Instead of one MCP call per note, add hundreds of notes in a single call:
