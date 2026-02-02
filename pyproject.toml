@@ -1,21 +1,22 @@
 [project]
 name = "guitar-pro-mcp"
-version = "0.2.0"
-description = "Guitar Pro MCP Server for AI - Fixed version with proper GP5 file creation"
+version = "2.0.0"
+description = "Guitar Pro MCP Server - Optimized with batch operations for fast song creation"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
     "pyguitarpro>=0.10",
     "mcp[cli]>=1.0",
-    "mido>=1.3",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0",
-]
+[project.scripts]
+guitar-pro-mcp = "src.server:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
