@@ -1,61 +1,21 @@
-[build-system]
-requires = ["setuptools>=42", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "guitar-pro-mcp"
-version = "0.1.0"
-description = "MCP server for Guitar Pro file manipulation"
+version = "0.2.0"
+description = "Guitar Pro MCP Server for AI - Fixed version with proper GP5 file creation"
 readme = "README.md"
-requires-python = ">=3.10"
 license = {text = "MIT"}
-authors = [
-    {name = "Your Name", email = "your.email@example.com"}
-]
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-]
+requires-python = ">=3.10"
 dependencies = [
-    "mcp>=0.2.0",
-    "mido>=1.2.10",
-    "pyguitarpro>=0.7.0",
+    "pyguitarpro>=0.10",
+    "mcp[cli]>=1.0",
+    "mido>=1.3",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
-    "black>=22.0",
-    "isort>=5.0",
-    "mypy>=1.0",
-    "flake8>=6.0",
 ]
 
-[tool.setuptools]
-packages = ["src"]
-
-[tool.black]
-line-length = 88
-target-version = ["py310"]
-include = '\.pyi?$'
-
-[tool.isort]
-profile = "black"
-multi_line_output = 3
-line_length = 88
-
-[tool.mypy]
-python_version = "3.10"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-addopts = "-v --cov=src" 
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
