@@ -1,6 +1,5 @@
 """
-Guitar Pro MCP Server v2.0
-Optimized for speed with batch operations.
+Guitar Pro MCP Server v2.2
 """
 
 import logging
@@ -15,12 +14,12 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    logger.info("Starting Guitar Pro MCP Server v2.0...")
+    logger.info("Starting Guitar Pro MCP Server v2.2...")
     
-    mcp = FastMCP("Guitar Pro v2")
+    mcp = FastMCP("Guitar Pro v2.2")
     setup_tools(mcp)
     
-    logger.info("Server ready - batch operations enabled!")
+    logger.info("Server ready!")
     mcp.run()
 
 

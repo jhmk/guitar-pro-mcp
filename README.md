@@ -1,63 +1,79 @@
-# Guitar Pro MCP Server v2.1
+# Guitar Pro MCP Server v2.2
 
 Fast, optimized MCP server for Guitar Pro file manipulation with Claude AI.
 
-> **Note**: Currently, only Guitar Pro 5 (.gp5) format has been tested.
+## What's New in v2.2
 
-## What's New in v2.1
-
-### 🚀 Batch Operations (10-50x faster!)
-Instead of one MCP call per note, add hundreds of notes in a single call:
-
+### 🎸 TAB BULK IMPORT
+Import complete tablature in one call:
 ```python
-# OLD (slow) - 50 separate calls
-for note in notes:
-    add_gp_note(...)
+gp_import_tab("""
+e|--0--3--5--3--0--|
+B|-----------------|
+G|-----------------|
+D|-----------------|
+A|-----------------|
+E|--0--0--0--0--0--|
+""")
 
-# NEW (fast) - 1 call
-gp_add_notes([...50 notes...])
+# Or compact format:
+gp_import_tab("6:0-0-3-5 5:2-2-0")
 ```
 
-### 🎸 Built-in Tuning Presets
-No more manual string configuration:
-- `standard`, `drop_d`, `drop_c`, `drop_b`, `drop_a`
-- `d_standard`, `c_standard`
-- `open_d`, `open_g`, `dadgad`
-- `standard_7`, `drop_a_7` (7-string)
-- `bass_standard`, `bass_drop_d`, `bass_5_standard`
-
-### 🎵 Chord Helpers
+### 🔄 PATTERN COPY/REPEAT
 ```python
-# Power chord
-gp_add_power_chord(track=0, measure=0, beat=0, root_string=6, root_fret=0)
-
-# Any chord shape
-gp_add_chord(track=0, measure=0, beat=0, frets=[0, 2, 2, 1, 0, 0])  # E major
-
-# Palm-muted chugging
-gp_add_palm_mutes(track=0, measure=0, string=6, frets=[0, 0, 0, 3, 0, 0, 0, 5])
+# Copy measures 0-1 and repeat 4 times starting at measure 2
+gp_repeat_pattern(track=0, source_start=0, source_end=1, dest_start=2, times=4)
 ```
 
-### 📝 ASCII Tab Import
+### 📁 COPY FROM EXISTING FILE
 ```python
-gp_import_tab("6:0-0-3-5 5:2-2")  # Compact format
+gp_copy_track_from_file("/path/to/original.gp5", source_track_index=0, dest_track_name="Guitar Copy")
 ```
 
-### 🎯 Create Complete Songs in One Call
+### 🎵 CHORD SHORTCUTS
 ```python
-gp_create_complete(
-    title="My Metal Riff",
-    artist="Claude",
-    tempo=140,
-    tracks=[{"name": "Guitar", "tuning": "drop_d"}],
-    measures=4,
-    notes=[
-        {"measure": 0, "beat": 0, "string": 6, "fret": 0, "palm_mute": True},
-        {"measure": 0, "beat": 1, "string": 6, "fret": 0, "palm_mute": True},
-        # ... more notes
-    ]
-)
+gp_add_chord(0, 0, 0, chord_name="E")  # E major
+gp_add_chord(0, 0, 1, chord_name="Am") # A minor
+gp_add_chord_progression(0, 0, ["E", "A", "B", "E"])
 ```
+
+Available chords: E, Em, A, Am, D, Dm, G, C, F, B, Bm, E5, A5, D5, G5, E7, A7, Em7, Am7, Asus2, Asus4, Dsus2, Dsus4
+
+### 🎼 RIFF TEMPLATES
+```python
+gp_add_riff_template(track=0, measure=0, template_name="chug_basic", root_fret=0, repeat=4)
+```
+
+Templates: `chug_basic`, `chug_gallop`, `chug_breakdown`, `power_quarters`, `djent_basic`, `thrash_pick`
+
+### 🎹 MULTI-TRACK BATCH
+```python
+gp_add_notes_multi_track({
+    0: [guitar_notes],
+    1: [bass_notes]
+})
+```
+
+### ⬆️ TRANSPOSE
+```python
+gp_transpose(track_index=0, semitones=-2)  # Down 2 semitones
+```
+
+## Tuning Presets
+
+| Tuning | Strings |
+|--------|---------|
+| `standard` | E A D G B E |
+| `drop_d` | D A D G B E |
+| `drop_c` | C G C F A D |
+| `drop_b` | B F# B E G# C# |
+| `d_standard` | D G C F A D |
+| `c_standard` | C F Bb Eb G C |
+| `standard_7` | B E A D G B E |
+| `bass_standard` | E A D G |
+| `bass_drop_d` | D A D G |
+| `bass_drop_c` | C G C F |
 
 ## Installation
 
@@ -65,13 +81,13 @@ gp_create_complete(
 git clone https://github.com/yourusername/guitar-pro-mcp.git
 cd guitar-pro-mcp
 uv venv
-source .venv/bin/activate  # macOS/Linux
+source .venv/bin/activate
 uv pip install .
 ```
 
 ## Claude Desktop Configuration
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -91,89 +107,71 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 }
 ```
 
-On Windows, use `%APPDATA%\Claude\claude_desktop_config.json`.
-
-Restart Claude Desktop after editing.
-
 ## Tool Reference
 
 ### File Operations
 | Tool | Description |
 |------|-------------|
-| `gp_load` | Load a .gp5/.gp4/.gp3 file |
-| `gp_save` | Save to .gp5 format |
+| `gp_load` | Load .gp5/.gp4/.gp3 file |
+| `gp_save` | Save to .gp5 |
 
-### Song Operations
+### Song Creation
 | Tool | Description |
 |------|-------------|
-| `gp_create` | Create new song with one track |
-| `gp_create_complete` | Create song + tracks + measures + notes in ONE call |
-| `gp_info` | Get song info |
-| `gp_stats` | Get statistics |
-| `gp_set_properties` | Update title/artist/album/tempo |
+| `gp_create` | New song with one track |
+| `gp_create_complete` | Complete song in ONE call |
 
-### Track Operations
+### Tab Import (NEW!)
 | Tool | Description |
 |------|-------------|
-| `gp_add_track` | Add a track with tuning preset |
-| `gp_set_tuning` | Change track tuning |
-| `gp_tracks` | List all tracks |
+| `gp_import_tab` | **Import ASCII tab** - fastest way! |
 
-### Measure Operations
+### Pattern Operations (NEW!)
 | Tool | Description |
 |------|-------------|
-| `gp_add_measures` | Add multiple measures at once |
-| `gp_set_time_signature` | Set time signature |
+| `gp_copy_measures` | Copy to clipboard |
+| `gp_paste_measures` | Paste with repeat |
+| `gp_repeat_pattern` | Copy + repeat in one call |
+| `gp_copy_track_from_file` | Copy from another .gp5 |
 
-### Note Operations (FAST!)
+### Chord Operations (NEW!)
 | Tool | Description |
 |------|-------------|
-| `gp_add_notes` | **Batch add notes** - fastest method! |
-| `gp_add_note` | Add single note |
+| `gp_add_chord` | Add chord by name or frets |
 | `gp_add_power_chord` | Add power chord |
-| `gp_add_chord` | Add any chord shape |
-| `gp_add_palm_mutes` | Add palm-muted sequence |
-| `gp_get_notes` | Get all notes from track |
+| `gp_add_chord_progression` | Add chord sequence |
+| `gp_list_chords` | List available chords |
 
-### Tab Operations
+### Riff Templates (NEW!)
 | Tool | Description |
 |------|-------------|
-| `gp_import_tab` | Import ASCII tablature |
-| `gp_get_tab` | Export track as ASCII tab |
+| `gp_list_riff_templates` | List templates |
+| `gp_add_riff_template` | Add template |
 
-## Note Effects
+### Note Operations
+| Tool | Description |
+|------|-------------|
+| `gp_add_notes` | Batch add notes |
+| `gp_add_notes_multi_track` | Add to multiple tracks |
+| `gp_add_palm_mutes` | Palm-muted sequence |
 
-When using `gp_add_notes`, you can add effects:
+### Transpose (NEW!)
+| Tool | Description |
+|------|-------------|
+| `gp_transpose` | Transpose track |
+
+## IMPORTANT: Beat Values
+
+Beat values must be **integers** (0, 1, 2, 3...), not floats!
 
 ```python
-{
-    "string": 6, "fret": 0,
-    "palm_mute": True,   # P.M.
-    "hammer_on": True,   # H
-    "pull_off": True,    # P
-    "slide": True,       # /
-    "vibrato": True,     # ~
-    "ghost": True,       # ()
-    "dead": True         # x
-}
+# CORRECT
+{"beat": 0, "string": 6, "fret": 0}
+{"beat": 1, "string": 6, "fret": 3}
+
+# WRONG - will cause errors
+{"beat": 0.5, "string": 6, "fret": 0}
 ```
-
-## Tuning Reference
-
-| Tuning | Strings (low to high) |
-|--------|----------------------|
-| `standard` | E A D G B E |
-| `drop_d` | D A D G B E |
-| `drop_c` | C G C F A D |
-| `drop_b` | B F# B E G# C# |
-| `d_standard` | D G C F A D |
-| `c_standard` | C F Bb Eb G C |
-| `open_d` | D A D F# A D |
-| `open_g` | D G D G B D |
-| `dadgad` | D A D G A D |
-| `standard_7` | B E A D G B E |
-| `bass_standard` | E A D G |
-| `bass_drop_d` | D A D G |
 
 ## License
 

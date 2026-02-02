@@ -1,7 +1,7 @@
 [project]
 name = "guitar-pro-mcp"
-version = "2.0.0"
-description = "Guitar Pro MCP Server - Optimized with batch operations for fast song creation"
+version = "2.2.0"
+description = "Guitar Pro MCP Server - Fast song creation with tab import, pattern repeat, chord shortcuts"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
