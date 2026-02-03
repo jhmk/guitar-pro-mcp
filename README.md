@@ -78,7 +78,7 @@ gp_transpose(track_index=0, semitones=-2)  # Down 2 semitones
 ## Installation
 
 ```bash
-git clone https://github.com/yourusername/guitar-pro-mcp.git
+git clone https://github.com/JHMK/guitar-pro-mcp.git
 cd guitar-pro-mcp
 uv venv
 source .venv/bin/activate
