@@ -1,5 +1,5 @@
 """
-MCP Tools v3.0
+MCP Tools v2.2.3
 - Consolidated from 30 tools down to 8 for faster LLM dispatch
 - All controller logic unchanged; routing happens here via action/mode/format params
 """

@@ -1,5 +1,5 @@
 """
-Guitar Pro MCP Server v3.0
+Guitar Pro MCP Server v2.2.3
 """
 
 import logging
@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    logger.info("Starting Guitar Pro MCP Server v3.0...")
+    logger.info("Starting Guitar Pro MCP Server v2.2.3...")
 
-    mcp = FastMCP("Guitar Pro v3.0")
+    mcp = FastMCP("Guitar Pro v2.2.3")
     setup_tools(mcp)
 
     logger.info("Server ready!")

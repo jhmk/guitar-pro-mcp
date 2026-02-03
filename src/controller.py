@@ -1,5 +1,5 @@
 """
-Guitar Pro Controller v3.0
+Guitar Pro Controller v2.2.3
 - Batch operations for speed
 - TAB bulk import
 - Pattern copy/repeat
@@ -197,7 +197,7 @@ RIFF_TEMPLATES = {
 # =============================================================================
 
 class GuitarProController:
-    """Guitar Pro Controller v3.0 with advanced features."""
+    """Guitar Pro Controller v2.2.3 with advanced features."""
     
     def __init__(self):
         self.song: Optional[Song] = None
