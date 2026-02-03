@@ -1,5 +1,5 @@
 """
-MCP Tools v2.1
+MCP Tools v2.2
 - All new features: tab import, pattern repeat, copy from file, chord shortcuts, templates, transpose
 """
 

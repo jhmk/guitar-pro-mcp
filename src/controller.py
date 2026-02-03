@@ -1,5 +1,5 @@
 """
-Guitar Pro Controller v2.1
+Guitar Pro Controller v2.2
 - Batch operations for speed
 - TAB bulk import
 - Pattern copy/repeat
@@ -194,7 +194,7 @@ RIFF_TEMPLATES = {
 # =============================================================================
 
 class GuitarProController:
-    """Guitar Pro Controller v2.1 with advanced features."""
+    """Guitar Pro Controller v2.2 with advanced features."""
     
     def __init__(self):
         self.song: Optional[Song] = None
@@ -301,10 +301,10 @@ class GuitarProController:
         """Update song properties."""
         if not self.song:
             return False
-        if title: self.song.title = title
-        if artist: self.song.artist = artist
-        if album: self.song.album = album
-        if tempo: self.song.tempo = tempo
+        if title is not None: self.song.title = title
+        if artist is not None: self.song.artist = artist
+        if album is not None: self.song.album = album
+        if tempo is not None: self.song.tempo = tempo
         return True
     
     # =========================================================================
@@ -781,7 +781,7 @@ class GuitarProController:
             if fret >= 0:
                 notes.append({
                     "track": track, "measure": measure, "beat": beat,
-                    "string": 6 - string_idx,
+                    "string": len(frets) - string_idx,
                     "fret": fret, "duration": duration
                 })
         return self.add_notes_batch(notes)
@@ -804,6 +804,8 @@ class GuitarProController:
                               chords: List[str], beats_per_chord: int = 4,
                               duration: int = 4) -> Dict[str, Any]:
         """Add a chord progression (e.g., ["E", "A", "B", "E"])."""
+        if not self.song:
+            self.create()
         current_measure = start_measure
         current_beat = 0
         chords_added = 0
@@ -843,6 +845,9 @@ class GuitarProController:
         if template_name not in RIFF_TEMPLATES:
             return {"error": f"Unknown template: {template_name}"}
         
+        if not self.song:
+            self.create()
+
         template = RIFF_TEMPLATES[template_name]
         notes_to_add = []
         
@@ -878,8 +883,7 @@ class GuitarProController:
         all_notes = []
         for track_idx, notes in notes_by_track.items():
             for note in notes:
-                note["track"] = track_idx
-                all_notes.append(note)
+                all_notes.append({**note, "track": track_idx})
         
         self.add_notes_batch(all_notes)
         return {"total_notes_added": len(all_notes), "tracks_modified": len(notes_by_track)}
@@ -967,7 +971,7 @@ class GuitarProController:
             
             for notes_dict in beat_data:
                 for string_num in range(1, num_strings + 1):
-                    line_idx = num_strings - string_num
+                    line_idx = string_num - 1
                     if string_num in notes_dict:
                         fret = str(notes_dict[string_num])
                         tab_lines[line_idx] += fret.ljust(3, '-')

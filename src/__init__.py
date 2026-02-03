@@ -1,4 +1,4 @@
-"""Guitar Pro MCP Server v2.1"""
+"""Guitar Pro MCP Server v2.2"""
 from .controller import GuitarProController, get_controller
 from .server import main
 
