@@ -1,5 +1,5 @@
 """
-Guitar Pro Controller v2.2
+Guitar Pro Controller v3.0
 - Batch operations for speed
 - TAB bulk import
 - Pattern copy/repeat
@@ -56,6 +56,9 @@ TUNINGS = {
 }
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+# Reverse lookup: tuple of MIDI values -> tuning name (O(1) instead of linear scan)
+_TUNING_REVERSE = {tuple(v): k for k, v in TUNINGS.items()}
 
 # =============================================================================
 # CHORD LIBRARY
@@ -194,7 +197,7 @@ RIFF_TEMPLATES = {
 # =============================================================================
 
 class GuitarProController:
-    """Guitar Pro Controller v2.2 with advanced features."""
+    """Guitar Pro Controller v3.0 with advanced features."""
     
     def __init__(self):
         self.song: Optional[Song] = None
@@ -942,46 +945,47 @@ class GuitarProController:
     # TAB EXPORT & STATS
     # =========================================================================
     
-    def get_tab(self, track_index: int, start_measure: int = 0, 
+    def get_tab(self, track_index: int, start_measure: int = 0,
                 end_measure: int = None) -> str:
         """Generate ASCII tab."""
         if not self.song or track_index >= len(self.song.tracks):
             return "Invalid track"
-        
+
         track = self.song.tracks[track_index]
         num_strings = len(track.strings)
-        
+
         if end_measure is None:
             end_measure = len(track.measures)
-        
+
         string_names = [self._note_name(s.value) for s in sorted(track.strings, key=lambda s: s.number)]
-        tab_lines = [f"{name}|" for name in string_names]
-        
+        # Use list-of-lists for O(1) appends instead of string concatenation
+        tab_parts = [[f"{name}|"] for name in string_names]
+
         for m_idx in range(start_measure, min(end_measure, len(track.measures))):
             measure = track.measures[m_idx]
-            
+
             beat_data = []
             for voice in measure.voices:
                 for beat in voice.beats:
                     beat_notes = {note.string: note.value for note in beat.notes}
                     beat_data.append(beat_notes)
-            
+
             if not beat_data:
                 beat_data = [{}]
-            
+
             for notes_dict in beat_data:
                 for string_num in range(1, num_strings + 1):
                     line_idx = string_num - 1
                     if string_num in notes_dict:
                         fret = str(notes_dict[string_num])
-                        tab_lines[line_idx] += fret.ljust(3, '-')
+                        tab_parts[line_idx].append(fret.ljust(3, '-'))
                     else:
-                        tab_lines[line_idx] += "---"
-            
+                        tab_parts[line_idx].append("---")
+
             for i in range(num_strings):
-                tab_lines[i] += "|"
-        
-        return '\n'.join(tab_lines)
+                tab_parts[i].append("|")
+
+        return '\n'.join(''.join(parts) for parts in tab_parts)
     
     def get_track_notes(self, track_index: int) -> List[Dict]:
         """Get all notes from a track."""
@@ -1056,14 +1060,9 @@ class GuitarProController:
         """Detect tuning name from track strings."""
         if not track.strings:
             return "unknown"
-        
-        values = [s.value for s in sorted(track.strings, key=lambda s: -s.number)]
-        
-        for name, preset_values in TUNINGS.items():
-            if values == preset_values:
-                return name
-        
-        return "custom"
+
+        values = tuple(s.value for s in sorted(track.strings, key=lambda s: -s.number))
+        return _TUNING_REVERSE.get(values, "custom")
     
     def _add_measure_header(self) -> int:
         """Add a measure header and measures to all tracks."""
