@@ -1,10 +1,17 @@
 """
-Guitar Pro Controller v2.2
-FIXES: NoteEffect init, Beat.start, Duration handling, dead note type
+Guitar Pro Controller v2.5
+NEW: GP7/8 (.gp) Read Support!
+
+FEATURES:
+- Read/Write GP3/4/5
+- READ GP7/8 (via gp8_reader module)
+- Batch operations, TAB import, chords, templates, transpose
 """
 
 import logging
 import re
+import zipfile
+import xml.etree.ElementTree as ET
 from typing import Dict, List, Any, Optional, Tuple
 
 import guitarpro as gp
@@ -118,22 +125,316 @@ RIFF_TEMPLATES = {
 }
 
 
+# =============================================================================
+# GP7/8 READER (embedded)
+# =============================================================================
+
+class GP8Reader:
+    """Reads Guitar Pro 7/8 (.gp) files."""
+    
+    def __init__(self):
+        self.gpif_root = None
+        self.version = None
+        self._notes = {}
+        self._beats = {}
+        self._voices = {}
+        self._bars = {}
+        self._rhythms = {}
+        
+    def read(self, path: str) -> Dict[str, Any]:
+        """Read a GP7/8 file and return structured data."""
+        with zipfile.ZipFile(path, 'r') as z:
+            if 'VERSION' in z.namelist():
+                self.version = z.read('VERSION').decode('utf-8').strip()
+            
+            gpif_path = 'Content/score.gpif'
+            if gpif_path not in z.namelist():
+                raise ValueError("Invalid GP7/8 file: missing score.gpif")
+            
+            self.gpif_root = ET.fromstring(z.read(gpif_path))
+        
+        return self._parse_gpif()
+    
+    def _parse_gpif(self) -> Dict[str, Any]:
+        root = self.gpif_root
+        result = {
+            "format_version": self.version,
+            "gp_version": self._text(root, "GPVersion"),
+            "title": "", "artist": "", "album": "",
+            "tempo": 120, "tracks": [], "master_bars": [],
+        }
+        
+        score = root.find("Score")
+        if score is not None:
+            result["title"] = self._text(score, "Title") or ""
+            result["artist"] = self._text(score, "Artist") or ""
+            result["album"] = self._text(score, "Album") or ""
+        
+        # Tempo from MasterTrack/Automations
+        mt = root.find("MasterTrack")
+        if mt is not None:
+            autos = mt.find("Automations")
+            if autos is not None:
+                for a in autos.findall("Automation"):
+                    if self._text(a, "Type") == "Tempo":
+                        v = self._text(a, "Value")
+                        if v:
+                            result["tempo"] = int(float(v.split()[0]))
+                            break
+        
+        self._build_lookups(root)
+        
+        # Tracks
+        tracks_elem = root.find("Tracks")
+        if tracks_elem is not None:
+            for t in tracks_elem.findall("Track"):
+                result["tracks"].append(self._parse_track(t))
+        
+        # MasterBars
+        mbs = root.find("MasterBars")
+        if mbs is not None:
+            for mb in mbs.findall("MasterBar"):
+                result["master_bars"].append(self._parse_master_bar(mb))
+        
+        # Link bars to tracks
+        for mb_idx, mb in enumerate(result["master_bars"]):
+            for track_idx, bar_id in enumerate(mb["bar_ids"]):
+                if track_idx < len(result["tracks"]) and bar_id in self._bars:
+                    result["tracks"][track_idx].setdefault("bars", []).append({
+                        "measure": mb_idx,
+                        "time_num": mb["time_num"],
+                        "time_den": mb["time_den"],
+                        "voices": self._bars[bar_id]["voices"]
+                    })
+        
+        return result
+    
+    def _build_lookups(self, root):
+        # Rhythms
+        rhythms = root.find("Rhythms")
+        if rhythms is not None:
+            for r in rhythms.findall("Rhythm"):
+                self._rhythms[r.get("id")] = self._parse_rhythm(r)
+        
+        # Notes
+        notes = root.find("Notes")
+        if notes is not None:
+            for n in notes.findall("Note"):
+                self._notes[n.get("id")] = self._parse_note(n)
+        
+        # Beats
+        beats = root.find("Beats")
+        if beats is not None:
+            for b in beats.findall("Beat"):
+                self._beats[b.get("id")] = self._parse_beat(b)
+        
+        # Voices
+        voices = root.find("Voices")
+        if voices is not None:
+            for v in voices.findall("Voice"):
+                self._voices[v.get("id")] = self._parse_voice(v)
+        
+        # Bars
+        bars = root.find("Bars")
+        if bars is not None:
+            for b in bars.findall("Bar"):
+                self._bars[b.get("id")] = self._parse_bar(b)
+    
+    def _parse_rhythm(self, elem) -> Dict:
+        dur_map = {"Whole": 1, "Half": 2, "Quarter": 4, "Eighth": 8, "16th": 16, "32nd": 32}
+        nv = elem.find("NoteValue")
+        dur = dur_map.get(nv.text if nv is not None else "Quarter", 4)
+        dot = elem.find("AugmentationDot")
+        return {"duration": dur, "dotted": dot is not None}
+    
+    def _parse_note(self, elem) -> Dict:
+        data = {"fret": 0, "string": 1, "palm_mute": False, "hammer_on": False,
+                "vibrato": False, "slide": False, "dead": False, "ghost": False, "let_ring": False}
+        props = elem.find("Properties")
+        if props is not None:
+            for p in props.findall("Property"):
+                name = p.get("name")
+                if name == "Fret":
+                    f = p.find("Fret")
+                    if f is not None and f.text: data["fret"] = int(f.text)
+                elif name == "String":
+                    s = p.find("String")
+                    if s is not None and s.text: data["string"] = int(s.text) + 1
+                elif name == "PalmMuted": data["palm_mute"] = p.find("Enable") is not None
+                elif name == "HammerOn": data["hammer_on"] = p.find("Enable") is not None
+                elif name == "Vibrato": data["vibrato"] = True
+                elif name == "Slide": data["slide"] = True
+                elif name == "Muted": data["dead"] = p.find("Enable") is not None
+                elif name == "LetRing": data["let_ring"] = p.find("Enable") is not None
+        aa = elem.find("AntiAccent")
+        if aa is not None and aa.text == "Normal": data["ghost"] = True
+        return data
+    
+    def _parse_beat(self, elem) -> Dict:
+        data = {"notes": [], "duration": 4}
+        rr = elem.find("Rhythm")
+        if rr is not None:
+            rid = rr.get("ref")
+            if rid in self._rhythms: data["duration"] = self._rhythms[rid]["duration"]
+        nn = elem.find("Notes")
+        if nn is not None and nn.text:
+            for nid in nn.text.split():
+                if nid in self._notes: data["notes"].append(self._notes[nid])
+        return data
+    
+    def _parse_voice(self, elem) -> Dict:
+        data = {"beats": []}
+        bb = elem.find("Beats")
+        if bb is not None and bb.text:
+            for bid in bb.text.split():
+                if bid in self._beats: data["beats"].append(self._beats[bid])
+        return data
+    
+    def _parse_bar(self, elem) -> Dict:
+        data = {"voices": []}
+        vv = elem.find("Voices")
+        if vv is not None and vv.text:
+            for vid in vv.text.split():
+                if vid in self._voices: data["voices"].append(self._voices[vid])
+        return data
+    
+    def _parse_track(self, elem) -> Dict:
+        data = {"name": self._text(elem, "Name") or "Track", "instrument": 25,
+                "tuning": [], "strings": 6, "capo": 0, "bars": []}
+        gm = elem.find(".//GeneralMidi")
+        if gm is not None:
+            prog = self._text(gm, "Program")
+            if prog: data["instrument"] = int(prog)
+        props = elem.find("Properties")
+        if props is not None:
+            for p in props.findall("Property"):
+                if p.get("name") == "Tuning":
+                    pitches = p.find("Pitches")
+                    if pitches is not None and pitches.text:
+                        data["tuning"] = [int(x) for x in pitches.text.split()]
+                        data["strings"] = len(data["tuning"])
+                elif p.get("name") == "CapoFret":
+                    f = p.find("Fret")
+                    if f is not None and f.text: data["capo"] = int(f.text)
+        return data
+    
+    def _parse_master_bar(self, elem) -> Dict:
+        data = {"time_num": 4, "time_den": 4, "bar_ids": []}
+        t = elem.find("Time")
+        if t is not None and t.text:
+            parts = t.text.split("/")
+            if len(parts) == 2:
+                data["time_num"], data["time_den"] = int(parts[0]), int(parts[1])
+        bb = elem.find("Bars")
+        if bb is not None and bb.text: data["bar_ids"] = bb.text.split()
+        return data
+    
+    def _text(self, elem, tag) -> Optional[str]:
+        c = elem.find(tag)
+        return c.text.strip() if c is not None and c.text else None
+    
+    def to_notes_list(self, data: Dict) -> List[Dict]:
+        """Convert to flat notes list for add_notes_batch()."""
+        notes = []
+        for ti, track in enumerate(data["tracks"]):
+            for bar in track.get("bars", []):
+                for vi, voice in enumerate(bar["voices"]):
+                    for bi, beat in enumerate(voice["beats"]):
+                        for note in beat["notes"]:
+                            nd = {"track": ti, "measure": bar["measure"], "beat": bi,
+                                  "voice": vi, "string": note["string"], "fret": note["fret"],
+                                  "duration": beat["duration"]}
+                            for eff in ["palm_mute", "hammer_on", "vibrato", "slide", "dead", "ghost", "let_ring"]:
+                                if note.get(eff): nd[eff] = True
+                            notes.append(nd)
+        return notes
+
+
+# =============================================================================
+# MAIN CONTROLLER
+# =============================================================================
+
 class GuitarProController:
-    """Guitar Pro Controller v2.2"""
+    """Guitar Pro Controller v2.3 - Now with GP7/8 read support!"""
     
     def __init__(self):
         self.song: Optional[Song] = None
         self._clipboard: List[Dict] = []
     
+    # =========================================================================
+    # FILE OPERATIONS
+    # =========================================================================
+    
     def load(self, path: str) -> Dict[str, Any]:
-        self.song = parse(path)
+        """Load GP3/4/5/7/8 file. Auto-detects format."""
+        if path.endswith('.gp'):
+            return self.load_gp8(path)
+        else:
+            self.song = parse(path)
+            return self.get_info()
+    
+    def load_gp8(self, path: str) -> Dict[str, Any]:
+        """
+        Load GP7/8 file and convert to internal song.
+        
+        Note: Loads into PyGuitarPro format, some GP7/8 specific features may be lost.
+        """
+        reader = GP8Reader()
+        data = reader.read(path)
+        
+        # Create new song
+        self.create(
+            title=data["title"] or "Imported Song",
+            artist=data["artist"],
+            tempo=data["tempo"]
+        )
+        
+        # Create tracks
+        for i, track_info in enumerate(data["tracks"]):
+            if i == 0:
+                # Modify default track
+                track = self.song.tracks[0]
+                track.name = track_info["name"]
+                track.channel.instrument = track_info["instrument"]
+                if track_info["tuning"]:
+                    self._set_tuning_from_midi(track, track_info["tuning"])
+            else:
+                # Add new track
+                idx = self.add_track(
+                    name=track_info["name"],
+                    instrument=track_info["instrument"]
+                )
+                if track_info["tuning"]:
+                    self._set_tuning_from_midi(self.song.tracks[idx], track_info["tuning"])
+        
+        # Add measures
+        num_measures = len(data["master_bars"])
+        current = len(self.song.measureHeaders)
+        if num_measures > current:
+            self.add_measures(num_measures - current)
+        
+        # Set time signatures
+        for i, mb in enumerate(data["master_bars"]):
+            if i < len(self.song.measureHeaders):
+                self.set_time_signature(i, mb["time_num"], mb["time_den"])
+        
+        # Add all notes
+        notes = reader.to_notes_list(data)
+        if notes:
+            self.add_notes_batch(notes)
+        
         return self.get_info()
     
     def save(self, path: str) -> bool:
+        """Save to GP5 format (GP8 can open this)."""
         if not self.song:
             raise ValueError("No song loaded")
         write(self.song, path, version=(5, 1, 0))
         return True
+    
+    # =========================================================================
+    # SONG OPERATIONS
+    # =========================================================================
     
     def create(self, title: str = "New Song", artist: str = "", 
                tempo: int = 120, tuning: str = "standard") -> Dict[str, Any]:
@@ -206,6 +507,10 @@ class GuitarProController:
         if tempo is not None: self.song.tempo = tempo
         return True
     
+    # =========================================================================
+    # TRACK OPERATIONS
+    # =========================================================================
+    
     def add_track(self, name: str, tuning: str = "standard", instrument: int = 25) -> int:
         if not self.song:
             self.create()
@@ -214,8 +519,7 @@ class GuitarProController:
         track.channel.instrument = instrument
         self._set_track_tuning(track, tuning)
         for header in self.song.measureHeaders:
-            measure = Measure(track, header)
-            track.measures.append(measure)
+            track.measures.append(Measure(track, header))
         self.song.tracks.append(track)
         return len(self.song.tracks) - 1
     
@@ -235,6 +539,10 @@ class GuitarProController:
             for i, t in enumerate(self.song.tracks)
         ]
     
+    # =========================================================================
+    # MEASURE OPERATIONS
+    # =========================================================================
+    
     def add_measures(self, count: int = 1) -> int:
         if not self.song:
             self.create()
@@ -250,6 +558,10 @@ class GuitarProController:
         header.timeSignature.denominator.value = denominator
         return True
     
+    # =========================================================================
+    # NOTE OPERATIONS
+    # =========================================================================
+    
     def add_note(self, track: int, measure: int, beat: int, 
                  string: int, fret: int, duration: int = 4) -> bool:
         return self.add_notes_batch([{
@@ -258,7 +570,6 @@ class GuitarProController:
         }])
     
     def add_notes_batch(self, notes: List[Dict]) -> bool:
-        """Add multiple notes - THE CORE FUNCTION"""
         if not self.song:
             self.create()
         
@@ -283,7 +594,6 @@ class GuitarProController:
                 measure.voices.append(Voice(measure))
             voice = measure.voices[voice_idx]
             
-            # Create beats up to the needed index
             while beat_idx >= len(voice.beats):
                 new_beat = Beat(voice)
                 new_beat.duration = Duration()
@@ -300,29 +610,22 @@ class GuitarProController:
                 note = Note(beat)
                 note.string = int(n["string"])
                 note.value = int(n["fret"])
-                
-                # IMPORTANT: Initialize effect properly
                 if note.effect is None:
                     note.effect = NoteEffect()
-                
-                if n.get("palm_mute"):
-                    note.effect.palmMute = True
-                if n.get("hammer_on") or n.get("pull_off"):
-                    note.effect.hammer = True
-                if n.get("slide"):
-                    note.effect.slides = [gp.SlideType.shiftSlideTo]
-                if n.get("vibrato"):
-                    note.effect.vibrato = True
-                if n.get("ghost"):
-                    note.effect.ghostNote = True
-                if n.get("dead"):
-                    note.type = gp.NoteType.dead
-                if n.get("let_ring"):
-                    note.effect.letRing = True
-                
+                if n.get("palm_mute"): note.effect.palmMute = True
+                if n.get("hammer_on") or n.get("pull_off"): note.effect.hammer = True
+                if n.get("slide"): note.effect.slides = [gp.SlideType.shiftSlideTo]
+                if n.get("vibrato"): note.effect.vibrato = True
+                if n.get("ghost"): note.effect.ghostNote = True
+                if n.get("dead"): note.type = gp.NoteType.dead
+                if n.get("let_ring"): note.effect.letRing = True
                 beat.notes.append(note)
         
         return True
+    
+    # =========================================================================
+    # TAB IMPORT
+    # =========================================================================
     
     def import_tab_bulk(self, tab: str, track: int = 0, 
                         start_measure: int = 0, duration: int = 8) -> Dict[str, Any]:
@@ -345,53 +648,47 @@ class GuitarProController:
             line = line.strip()
             match = re.match(r'^([eEbBgGdDaA])\s*\|(.*)$', line)
             if match:
-                string_char = match.group(1).upper()
+                sc = match.group(1).upper()
                 content = match.group(2)
-                string_map = {'B': 2, 'G': 3, 'D': 4, 'A': 5}
-                if string_char == 'E':
-                    string_num = 1 if len(tab_lines) == 0 else 6
-                else:
-                    string_num = string_map.get(string_char, 1)
-                tab_lines.append((string_num, content))
+                sm = {'B': 2, 'G': 3, 'D': 4, 'A': 5}
+                sn = 1 if sc == 'E' and len(tab_lines) == 0 else (6 if sc == 'E' else sm.get(sc, 1))
+                tab_lines.append((sn, content))
         
         if not tab_lines:
             return notes
         
         max_len = max(len(c) for _, c in tab_lines)
-        current_measure, current_beat = start_measure, 0
-        beats_per_measure = 8 if duration == 8 else 4
+        cm, cb = start_measure, 0
+        bpm = 8 if duration == 8 else 4
         col = 0
         
         while col < max_len:
-            is_bar = all(col < len(c) and c[col] == '|' for _, c in tab_lines)
-            if is_bar:
+            if all(col < len(c) and c[col] == '|' for _, c in tab_lines):
                 col += 1
                 continue
             
-            column_notes = []
-            max_fret_len = 1
-            for string_num, content in tab_lines:
+            cn = []
+            mfl = 1
+            for sn, content in tab_lines:
                 if col >= len(content):
                     continue
-                char = content[col]
-                if char.isdigit():
-                    fret_str = char
+                ch = content[col]
+                if ch.isdigit():
+                    fs = ch
                     if col + 1 < len(content) and content[col + 1].isdigit():
-                        fret_str += content[col + 1]
-                        max_fret_len = 2
-                    column_notes.append({
-                        "track": track, "measure": current_measure, "beat": current_beat,
-                        "string": string_num, "fret": int(fret_str), "duration": duration
-                    })
+                        fs += content[col + 1]
+                        mfl = 2
+                    cn.append({"track": track, "measure": cm, "beat": cb,
+                               "string": sn, "fret": int(fs), "duration": duration})
             
-            if column_notes:
-                notes.extend(column_notes)
-                current_beat += 1
-                if current_beat >= beats_per_measure:
-                    current_beat = 0
-                    current_measure += 1
+            if cn:
+                notes.extend(cn)
+                cb += 1
+                if cb >= bpm:
+                    cb = 0
+                    cm += 1
             
-            col += max_fret_len
+            col += mfl
             while col < max_len and not any(
                 col < len(c) and (c[col].isdigit() or c[col] == '|') for _, c in tab_lines
             ):
@@ -401,28 +698,30 @@ class GuitarProController:
     
     def _parse_compact_tab(self, tab: str, track: int, start_measure: int, duration: int) -> List[Dict]:
         notes = []
-        current_beat, current_measure = 0, start_measure
-        beats_per_measure = 8 if duration == 8 else 4
+        cb, cm = 0, start_measure
+        bpm = 8 if duration == 8 else 4
         
         for part in tab.strip().split():
             if ':' in part:
-                string_str, frets_str = part.split(':', 1)
-                string = int(string_str)
-                for fret_str in frets_str.split('-'):
-                    fret_str = fret_str.strip()
-                    if fret_str.lstrip('-').isdigit() or fret_str == '0':
-                        notes.append({
-                            "track": track, "measure": current_measure, "beat": current_beat,
-                            "string": string, "fret": int(fret_str), "duration": duration
-                        })
-                        current_beat += 1
-                        if current_beat >= beats_per_measure:
-                            current_beat = 0
-                            current_measure += 1
+                ss, fs = part.split(':', 1)
+                string = int(ss)
+                for f in fs.split('-'):
+                    f = f.strip()
+                    if f.lstrip('-').isdigit() or f == '0':
+                        notes.append({"track": track, "measure": cm, "beat": cb,
+                                      "string": string, "fret": int(f), "duration": duration})
+                        cb += 1
+                        if cb >= bpm:
+                            cb = 0
+                            cm += 1
         return notes
     
     def _count_measures(self, notes: List[Dict]) -> int:
         return max((n.get("measure", 0) for n in notes), default=-1) + 1 if notes else 0
+    
+    # =========================================================================
+    # PATTERN COPY/PASTE
+    # =========================================================================
     
     def copy_measures(self, track_index: int, start_measure: int, end_measure: int) -> Dict[str, Any]:
         if not self.song or track_index >= len(self.song.tracks):
@@ -434,16 +733,12 @@ class GuitarProController:
             for voice in measure.voices:
                 for b_idx, beat in enumerate(voice.beats):
                     for note in beat.notes:
-                        note_data = {
-                            "measure": m_idx - start_measure, "beat": b_idx,
-                            "string": note.string, "fret": note.value,
-                            "duration": beat.duration.value if beat.duration else 4,
-                        }
-                        if note.effect and note.effect.palmMute:
-                            note_data["palm_mute"] = True
-                        if note.effect and note.effect.hammer:
-                            note_data["hammer_on"] = True
-                        self._clipboard.append(note_data)
+                        nd = {"measure": m_idx - start_measure, "beat": b_idx,
+                              "string": note.string, "fret": note.value,
+                              "duration": beat.duration.value if beat.duration else 4}
+                        if note.effect and note.effect.palmMute: nd["palm_mute"] = True
+                        if note.effect and note.effect.hammer: nd["hammer_on"] = True
+                        self._clipboard.append(nd)
         return {"notes_copied": len(self._clipboard), "measures": end_measure - start_measure + 1}
     
     def paste_measures(self, track_index: int, start_measure: int, repeat: int = 1) -> Dict[str, Any]:
@@ -451,18 +746,17 @@ class GuitarProController:
             return {"error": "Clipboard empty"}
         if not self.song:
             self.create()
-        pattern_measures = max(n["measure"] for n in self._clipboard) + 1
-        notes_to_add = []
+        pm = max(n["measure"] for n in self._clipboard) + 1
+        nta = []
         for rep in range(repeat):
-            offset = rep * pattern_measures
+            off = rep * pm
             for note in self._clipboard:
-                notes_to_add.append({**note, "track": track_index,
-                                     "measure": start_measure + note["measure"] + offset})
-        total_needed = start_measure + (pattern_measures * repeat)
-        while len(self.song.measureHeaders) < total_needed:
+                nta.append({**note, "track": track_index, "measure": start_measure + note["measure"] + off})
+        tn = start_measure + (pm * repeat)
+        while len(self.song.measureHeaders) < tn:
             self._add_measure_header()
-        self.add_notes_batch(notes_to_add)
-        return {"notes_added": len(notes_to_add), "measures_filled": pattern_measures * repeat}
+        self.add_notes_batch(nta)
+        return {"notes_added": len(nta), "measures_filled": pm * repeat}
     
     def repeat_pattern(self, track_index: int, source_start: int, source_end: int,
                        dest_start: int, times: int = 1) -> Dict[str, Any]:
@@ -472,41 +766,79 @@ class GuitarProController:
     def copy_track_from_file(self, source_path: str, source_track_index: int,
                              dest_track_name: str = None, start_measure: int = 0, 
                              end_measure: int = None) -> Dict[str, Any]:
+        """Copy track from another file (supports GP3-8)."""
         if not self.song:
             self.create()
+        
+        # Handle GP7/8 files
+        if source_path.endswith('.gp'):
+            reader = GP8Reader()
+            data = reader.read(source_path)
+            if source_track_index >= len(data["tracks"]):
+                return {"error": f"Source track {source_track_index} not found"}
+            
+            st = data["tracks"][source_track_index]
+            track_name = dest_track_name or st["name"]
+            nti = self.add_track(track_name, instrument=st["instrument"])
+            if st["tuning"]:
+                self._set_tuning_from_midi(self.song.tracks[nti], st["tuning"])
+            
+            notes = reader.to_notes_list(data)
+            notes = [n for n in notes if n["track"] == source_track_index]
+            for n in notes:
+                n["track"] = nti
+            
+            if end_measure is not None:
+                notes = [n for n in notes if start_measure <= n["measure"] <= end_measure]
+                for n in notes:
+                    n["measure"] -= start_measure
+            
+            mn = max((n["measure"] for n in notes), default=0) + 1
+            while len(self.song.measureHeaders) < mn:
+                self._add_measure_header()
+            
+            self.add_notes_batch(notes)
+            return {"track_name": track_name, "track_index": nti,
+                    "notes_copied": len(notes), "measures_copied": mn}
+        
+        # Handle GP3-5 files
         source_song = parse(source_path)
         if source_track_index >= len(source_song.tracks):
             return {"error": f"Source track {source_track_index} not found"}
-        source_track = source_song.tracks[source_track_index]
+        st = source_song.tracks[source_track_index]
         if end_measure is None:
-            end_measure = len(source_track.measures) - 1
-        track_name = dest_track_name or source_track.name
-        new_track_idx = self.add_track(track_name, self._get_tuning_name(source_track),
-                                       source_track.channel.instrument)
-        new_track = self.song.tracks[new_track_idx]
-        new_track.strings = [GuitarString(number=s.number, value=s.value) for s in source_track.strings]
-        measures_needed = end_measure - start_measure + 1
-        while len(self.song.measureHeaders) < measures_needed:
+            end_measure = len(st.measures) - 1
+        
+        track_name = dest_track_name or st.name
+        nti = self.add_track(track_name, self._get_tuning_name(st), st.channel.instrument)
+        nt = self.song.tracks[nti]
+        nt.strings = [GuitarString(number=s.number, value=s.value) for s in st.strings]
+        
+        mn = end_measure - start_measure + 1
+        while len(self.song.measureHeaders) < mn:
             self._add_measure_header()
-        notes_to_add = []
-        for m_idx in range(start_measure, min(end_measure + 1, len(source_track.measures))):
-            for v_idx, voice in enumerate(source_track.measures[m_idx].voices):
+        
+        nta = []
+        for m_idx in range(start_measure, min(end_measure + 1, len(st.measures))):
+            for v_idx, voice in enumerate(st.measures[m_idx].voices):
                 for b_idx, beat in enumerate(voice.beats):
                     for note in beat.notes:
-                        note_data = {
-                            "track": new_track_idx, "measure": m_idx - start_measure,
-                            "beat": b_idx, "voice": v_idx, "string": note.string, "fret": note.value,
-                            "duration": beat.duration.value if beat.duration else 4,
-                        }
+                        nd = {"track": nti, "measure": m_idx - start_measure, "beat": b_idx,
+                              "voice": v_idx, "string": note.string, "fret": note.value,
+                              "duration": beat.duration.value if beat.duration else 4}
                         if note.effect:
-                            if note.effect.palmMute: note_data["palm_mute"] = True
-                            if note.effect.hammer: note_data["hammer_on"] = True
-                            if note.effect.vibrato: note_data["vibrato"] = True
-                        notes_to_add.append(note_data)
-        if notes_to_add:
-            self.add_notes_batch(notes_to_add)
-        return {"track_name": track_name, "track_index": new_track_idx,
-                "notes_copied": len(notes_to_add), "measures_copied": measures_needed}
+                            if note.effect.palmMute: nd["palm_mute"] = True
+                            if note.effect.hammer: nd["hammer_on"] = True
+                            if note.effect.vibrato: nd["vibrato"] = True
+                        nta.append(nd)
+        
+        if nta:
+            self.add_notes_batch(nta)
+        return {"track_name": track_name, "track_index": nti, "notes_copied": len(nta), "measures_copied": mn}
+    
+    # =========================================================================
+    # CHORDS
+    # =========================================================================
     
     def add_chord_by_name(self, track: int, measure: int, beat: int,
                           chord_name: str, duration: int = 4) -> bool:
@@ -534,47 +866,53 @@ class GuitarProController:
     
     def add_chord_progression(self, track: int, start_measure: int, chords: List[str],
                               beats_per_chord: int = 4, duration: int = 4) -> Dict[str, Any]:
-        current_measure, current_beat, chords_added = start_measure, 0, 0
-        for chord_name in chords:
-            if chord_name in CHORDS:
-                while current_measure >= len(self.song.measureHeaders):
+        cm, cb, ca = start_measure, 0, 0
+        for cn in chords:
+            if cn in CHORDS:
+                while cm >= len(self.song.measureHeaders):
                     self._add_measure_header()
-                self.add_chord_by_name(track, current_measure, current_beat, chord_name, duration)
-                chords_added += 1
-            current_beat += beats_per_chord
-            while current_beat >= 4:
-                current_beat -= 4
-                current_measure += 1
-        return {"chords_added": chords_added}
+                self.add_chord_by_name(track, cm, cb, cn, duration)
+                ca += 1
+            cb += beats_per_chord
+            while cb >= 4:
+                cb -= 4
+                cm += 1
+        return {"chords_added": ca}
     
     def list_chords(self) -> List[str]:
         return list(CHORDS.keys())
     
+    # =========================================================================
+    # RIFF TEMPLATES
+    # =========================================================================
+    
     def list_riff_templates(self) -> Dict[str, str]:
-        return {name: t["description"] for name, t in RIFF_TEMPLATES.items()}
+        return {n: t["description"] for n, t in RIFF_TEMPLATES.items()}
     
     def add_riff_template(self, track: int, measure: int, template_name: str,
                           root_fret: int = 0, repeat: int = 1) -> Dict[str, Any]:
         if template_name not in RIFF_TEMPLATES:
             return {"error": f"Unknown template: {template_name}"}
-        template = RIFF_TEMPLATES[template_name]
+        t = RIFF_TEMPLATES[template_name]
         while len(self.song.measureHeaders) < measure + repeat:
             self._add_measure_header()
-        notes_to_add = []
+        nta = []
         for rep in range(repeat):
-            for nt in template["pattern"]:
-                notes_to_add.append({
-                    "track": track, "measure": measure + rep, "beat": nt["beat"],
-                    "string": nt["string"], "fret": nt["fret"] + root_fret,
-                    "duration": template["duration"], "palm_mute": nt.get("palm_mute", False)
-                })
-        self.add_notes_batch(notes_to_add)
-        return {"notes_added": len(notes_to_add), "measures": repeat}
+            for nt in t["pattern"]:
+                nta.append({"track": track, "measure": measure + rep, "beat": nt["beat"],
+                            "string": nt["string"], "fret": nt["fret"] + root_fret,
+                            "duration": t["duration"], "palm_mute": nt.get("palm_mute", False)})
+        self.add_notes_batch(nta)
+        return {"notes_added": len(nta), "measures": repeat}
+    
+    # =========================================================================
+    # MULTI-TRACK & TRANSPOSE
+    # =========================================================================
     
     def add_notes_multi_track(self, notes_by_track: Dict[int, List[Dict]]) -> Dict[str, Any]:
-        all_notes = [{**n, "track": t} for t, notes in notes_by_track.items() for n in notes]
-        self.add_notes_batch(all_notes)
-        return {"total_notes_added": len(all_notes), "tracks_modified": len(notes_by_track)}
+        an = [{**n, "track": t} for t, notes in notes_by_track.items() for n in notes]
+        self.add_notes_batch(an)
+        return {"total_notes_added": len(an), "tracks_modified": len(notes_by_track)}
     
     def transpose_track(self, track_index: int, semitones: int,
                         start_measure: int = 0, end_measure: int = None) -> Dict[str, Any]:
@@ -583,16 +921,16 @@ class GuitarProController:
         track = self.song.tracks[track_index]
         if end_measure is None:
             end_measure = len(track.measures) - 1
-        notes_transposed = 0
+        nt = 0
         for m_idx in range(start_measure, min(end_measure + 1, len(track.measures))):
             for voice in track.measures[m_idx].voices:
                 for beat in voice.beats:
                     for note in beat.notes:
-                        new_fret = note.value + semitones
-                        if 0 <= new_fret <= 24:
-                            note.value = new_fret
-                            notes_transposed += 1
-        return {"notes_transposed": notes_transposed}
+                        nf = note.value + semitones
+                        if 0 <= nf <= 24:
+                            note.value = nf
+                            nt += 1
+        return {"notes_transposed": nt}
     
     def transpose_section(self, track_index: int, start_measure: int, 
                           end_measure: int, semitones: int) -> Dict[str, Any]:
@@ -602,33 +940,34 @@ class GuitarProController:
                              frets: List[int], start_beat: int = 0, duration: int = 8) -> bool:
         return self.add_notes_batch([
             {"track": track, "measure": measure, "beat": start_beat + i,
-             "string": string, "fret": fret, "duration": duration, "palm_mute": True}
-            for i, fret in enumerate(frets)
+             "string": string, "fret": f, "duration": duration, "palm_mute": True}
+            for i, f in enumerate(frets)
         ])
+    
+    # =========================================================================
+    # OUTPUT
+    # =========================================================================
     
     def get_tab(self, track_index: int, start_measure: int = 0, end_measure: int = None) -> str:
         if not self.song or track_index >= len(self.song.tracks):
             return "Invalid track"
         track = self.song.tracks[track_index]
-        num_strings = len(track.strings)
+        ns = len(track.strings)
         if end_measure is None:
             end_measure = len(track.measures)
-        string_names = [self._note_name(s.value) for s in sorted(track.strings, key=lambda s: s.number)]
-        tab_lines = [f"{name}|" for name in string_names]
+        sn = [self._note_name(s.value) for s in sorted(track.strings, key=lambda s: s.number)]
+        tl = [f"{n}|" for n in sn]
         for m_idx in range(start_measure, min(end_measure, len(track.measures))):
             measure = track.measures[m_idx]
-            beat_data = [{note.string: note.value for note in beat.notes}
-                         for voice in measure.voices for beat in voice.beats] or [{}]
-            for notes_dict in beat_data:
-                for string_num in range(1, num_strings + 1):
-                    line_idx = num_strings - string_num
-                    if string_num in notes_dict:
-                        tab_lines[line_idx] += str(notes_dict[string_num]).ljust(3, '-')
-                    else:
-                        tab_lines[line_idx] += "---"
-            for i in range(num_strings):
-                tab_lines[i] += "|"
-        return '\n'.join(tab_lines)
+            bd = [{note.string: note.value for note in beat.notes}
+                  for voice in measure.voices for beat in voice.beats] or [{}]
+            for nd in bd:
+                for snum in range(1, ns + 1):
+                    li = ns - snum
+                    tl[li] += str(nd[snum]).ljust(3, '-') if snum in nd else "---"
+            for i in range(ns):
+                tl[i] += "|"
+        return '\n'.join(tl)
     
     def get_track_notes(self, track_index: int) -> List[Dict]:
         if not self.song or track_index >= len(self.song.tracks):
@@ -647,27 +986,35 @@ class GuitarProController:
     def get_statistics(self) -> Dict[str, Any]:
         if not self.song:
             return {}
-        track_stats = []
-        total_notes = 0
+        ts = []
+        tn = 0
         for i, track in enumerate(self.song.tracks):
-            track_notes = sum(len(beat.notes) for m in track.measures for v in m.voices for beat in v.beats)
-            total_notes += track_notes
-            track_stats.append({"name": track.name, "notes": track_notes, "measures": len(track.measures)})
-        return {"title": self.song.title, "total_notes": total_notes,
-                "tracks": track_stats, "measures": len(self.song.measureHeaders), "tempo": self.song.tempo}
+            cnt = sum(len(beat.notes) for m in track.measures for v in m.voices for beat in v.beats)
+            tn += cnt
+            ts.append({"name": track.name, "notes": cnt, "measures": len(track.measures)})
+        return {"title": self.song.title, "total_notes": tn,
+                "tracks": ts, "measures": len(self.song.measureHeaders), "tempo": self.song.tempo}
+    
+    # =========================================================================
+    # INTERNAL
+    # =========================================================================
     
     def _set_track_tuning(self, track: Track, tuning: str):
         if tuning not in TUNINGS:
             tuning = "standard"
-        midi_values = TUNINGS[tuning]
-        track.strings = [GuitarString(number=i + 1, value=v) for i, v in enumerate(reversed(midi_values))]
+        mv = TUNINGS[tuning]
+        track.strings = [GuitarString(number=i + 1, value=v) for i, v in enumerate(reversed(mv))]
+    
+    def _set_tuning_from_midi(self, track: Track, midi_values: List[int]):
+        """Set tuning from list of MIDI values (GP8 format: high to low)."""
+        track.strings = [GuitarString(number=i + 1, value=v) for i, v in enumerate(midi_values)]
     
     def _get_tuning_name(self, track: Track) -> str:
         if not track.strings:
             return "unknown"
-        values = [s.value for s in sorted(track.strings, key=lambda s: -s.number)]
+        vals = [s.value for s in sorted(track.strings, key=lambda s: -s.number)]
         for name, preset in TUNINGS.items():
-            if values == preset:
+            if vals == preset:
                 return name
         return "custom"
     

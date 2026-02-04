@@ -1,6 +1,6 @@
 [project]
 name = "guitar-pro-mcp"
-version = "2.2.3"
+version = "2.5.0"
 description = "Guitar Pro MCP Server - 8 consolidated tools for fast LLM dispatch, tab import, pattern repeat, chord shortcuts"
 readme = "README.md"
 license = {text = "MIT"}
