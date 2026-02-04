@@ -1,178 +1,85 @@
-# Guitar Pro MCP Server v2.2
+# Guitar Pro MCP v3.0
 
-Fast, optimized MCP server for Guitar Pro file manipulation with Claude AI.
+Full-featured Guitar Pro file manipulation via MCP (Model Context Protocol).
 
-## What's New in v2.2
+## Features
 
-### 🎸 TAB BULK IMPORT
-Import complete tablature in one call:
-```python
-gp_import_tab("""
-e|--0--3--5--3--0--|
-B|-----------------|
-G|-----------------|
-D|-----------------|
-A|-----------------|
-E|--0--0--0--0--0--|
-""")
+### File Formats
+- **Read**: GP3, GP4, GP5, GP7, GP8, MusicXML
+- **Write**: GP5, MusicXML
 
-# Or compact format:
-gp_import_tab("6:0-0-3-5 5:2-2-0")
-```
+### Note Effects
+- Bend (half, full, full_half, double, with release)
+- Harmonics (natural, artificial, pinch, tap)
+- Trill & Tremolo Picking
+- Grace Notes
+- Palm Mute, Hammer-On, Pull-Off, Slide
+- Vibrato, Ghost Notes, Dead Notes
+- Staccato, Accents
+- Tap, Slap, Pop (bass)
+- Tied Notes
 
-### 🔄 PATTERN COPY/REPEAT
-```python
-# Copy measures 0-1 and repeat 4 times starting at measure 2
-gp_repeat_pattern(track=0, source_start=0, source_end=1, dest_start=2, times=4)
-```
+### Song Structure
+- Markers/Sections (Intro, Verse, Chorus, etc.)
+- Repeat Start/End with alternate endings
+- Tempo Changes
 
-### 📁 COPY FROM EXISTING FILE
-```python
-gp_copy_track_from_file("/path/to/original.gp5", source_track_index=0, dest_track_name="Guitar Copy")
-```
-
-### 🎵 CHORD SHORTCUTS
-```python
-gp_add_chord(0, 0, 0, chord_name="E")  # E major
-gp_add_chord(0, 0, 1, chord_name="Am") # A minor
-gp_add_chord_progression(0, 0, ["E", "A", "B", "E"])
-```
-
-Available chords: E, Em, A, Am, D, Dm, G, C, F, B, Bm, E5, A5, D5, G5, E7, A7, Em7, Am7, Asus2, Asus4, Dsus2, Dsus4
-
-### 🎼 RIFF TEMPLATES
-```python
-gp_add_riff_template(track=0, measure=0, template_name="chug_basic", root_fret=0, repeat=4)
-```
-
-Templates: `chug_basic`, `chug_gallop`, `chug_breakdown`, `power_quarters`, `djent_basic`, `thrash_pick`
-
-### 🎹 MULTI-TRACK BATCH
-```python
-gp_add_notes_multi_track({
-    0: [guitar_notes],
-    1: [bass_notes]
-})
-```
-
-### ⬆️ TRANSPOSE
-```python
-gp_transpose(track_index=0, semitones=-2)  # Down 2 semitones
-```
-
-## Tuning Presets
-
-| Tuning | Strings |
-|--------|---------|
-| `standard` | E A D G B E |
-| `drop_d` | D A D G B E |
-| `drop_c` | C G C F A D |
-| `drop_b` | B F# B E G# C# |
-| `d_standard` | D G C F A D |
-| `c_standard` | C F Bb Eb G C |
-| `standard_7` | B E A D G B E |
-| `bass_standard` | E A D G |
-| `bass_drop_d` | D A D G |
-| `bass_drop_c` | C G C F |
+### Convenience
+- 30+ Chord shortcuts
+- 6 Riff templates (metal/rock patterns)
+- TAB import (standard + compact format)
+- Pattern copy/paste/repeat
+- Copy tracks from other GP files
+- Transpose
 
 ## Installation
 
 ```bash
-git clone https://github.com/JHMK/guitar-pro-mcp.git
 cd guitar-pro-mcp
-uv venv
-source .venv/bin/activate
-uv pip install .
+uv sync
 ```
 
-## Claude Desktop Configuration
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+## Claude Desktop Config
 
 ```json
 {
-    "mcpServers": {
-        "guitar-pro": {
-            "type": "stdio",
-            "command": "uv",
-            "args": [
-                "--directory",
-                "/path/to/guitar-pro-mcp",
-                "run",
-                "-m",
-                "src.server"
-            ]
-        }
+  "mcpServers": {
+    "guitar-pro": {
+      "command": "uv",
+      "args": ["--directory", "/path/to/guitar-pro-mcp", "run", "guitar-pro-mcp"]
     }
+  }
 }
 ```
 
-## Tool Reference
+## Examples
 
-### File Operations
-| Tool | Description |
-|------|-------------|
-| `gp_load` | Load .gp5/.gp4/.gp3 file |
-| `gp_save` | Save to .gp5 |
+### Create Song with Bend
+```
+gp_create("Solo", tempo=120, tuning="standard")
+gp_add_bend(track=0, measure=0, beat=0, string=2, fret=5, bend_type="full")
+gp_save("/path/to/solo.gp5")
+```
 
-### Song Creation
-| Tool | Description |
-|------|-------------|
-| `gp_create` | New song with one track |
-| `gp_create_complete` | Complete song in ONE call |
+### Add Section Markers
+```
+gp_add_marker(measure=0, title="Intro")
+gp_add_marker(measure=4, title="Verse", color=[0, 255, 0])
+gp_add_marker(measure=8, title="Chorus", color=[255, 0, 0])
+```
 
-### Tab Import (NEW!)
-| Tool | Description |
-|------|-------------|
-| `gp_import_tab` | **Import ASCII tab** - fastest way! |
+### Set Repeat
+```
+gp_set_repeat(measure=4, repeat_type="start")
+gp_set_repeat(measure=7, repeat_type="end", count=2)
+```
 
-### Pattern Operations (NEW!)
-| Tool | Description |
-|------|-------------|
-| `gp_copy_measures` | Copy to clipboard |
-| `gp_paste_measures` | Paste with repeat |
-| `gp_repeat_pattern` | Copy + repeat in one call |
-| `gp_copy_track_from_file` | Copy from another .gp5 |
-
-### Chord Operations (NEW!)
-| Tool | Description |
-|------|-------------|
-| `gp_add_chord` | Add chord by name or frets |
-| `gp_add_power_chord` | Add power chord |
-| `gp_add_chord_progression` | Add chord sequence |
-| `gp_list_chords` | List available chords |
-
-### Riff Templates (NEW!)
-| Tool | Description |
-|------|-------------|
-| `gp_list_riff_templates` | List templates |
-| `gp_add_riff_template` | Add template |
-
-### Note Operations
-| Tool | Description |
-|------|-------------|
-| `gp_add_notes` | Batch add notes |
-| `gp_add_notes_multi_track` | Add to multiple tracks |
-| `gp_add_palm_mutes` | Palm-muted sequence |
-
-### Transpose (NEW!)
-| Tool | Description |
-|------|-------------|
-| `gp_transpose` | Transpose track |
-
-## IMPORTANT: Beat Values
-
-Beat values must be **integers** (0, 1, 2, 3...), not floats!
-
-```python
-# CORRECT
-{"beat": 0, "string": 6, "fret": 0}
-{"beat": 1, "string": 6, "fret": 3}
-
-# WRONG - will cause errors
-{"beat": 0.5, "string": 6, "fret": 0}
+### Export to MusicXML
+```
+gp_load("/path/to/song.gp5")
+gp_export_musicxml("/path/to/song.xml")
 ```
 
 ## License
 
-MIT License
+MIT

@@ -1,27 +1,12 @@
 """
-Guitar Pro MCP Server v2.2.3
+Guitar Pro MCP Server v3.0
 """
 
-import logging
-from mcp.server.fastmcp import FastMCP
-from .tools import setup_tools
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
+from .tools import mcp
 
 def main():
-    logger.info("Starting Guitar Pro MCP Server v2.2.3...")
-
-    mcp = FastMCP("Guitar Pro v2.2.3")
-    setup_tools(mcp)
-
-    logger.info("Server ready!")
+    """Run the MCP server."""
     mcp.run()
-
 
 if __name__ == "__main__":
     main()

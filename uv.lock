@@ -220,7 +220,7 @@ wheels = [
 
 [[package]]
 name = "guitar-pro-mcp"
-version = "2.2.3"
+version = "3.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "mcp", extra = ["cli"] },
@@ -229,7 +229,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mcp", extras = ["cli"], specifier = ">=1.0" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.2.0" },
     { name = "pyguitarpro", specifier = ">=0.10" },
 ]
 

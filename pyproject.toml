@@ -1,22 +1,20 @@
 [project]
 name = "guitar-pro-mcp"
-version = "2.5.0"
-description = "Guitar Pro MCP Server - 8 consolidated tools for fast LLM dispatch, tab import, pattern repeat, chord shortcuts"
+version = "3.0.0"
+description = "Guitar Pro MCP Server - Full featured GP file manipulation"
 readme = "README.md"
-license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
+    "mcp[cli]>=1.2.0",
     "pyguitarpro>=0.10",
-    "mcp[cli]>=1.0",
 ]
 
 [project.scripts]
 guitar-pro-mcp = "src.server:main"
 
 [build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
