@@ -1,4 +1,4 @@
-# Guitar Pro MCP v3.0
+# Guitar Pro MCP v3.0.1
 
 Full-featured Guitar Pro file manipulation via MCP (Model Context Protocol).
 
@@ -24,6 +24,11 @@ Full-featured Guitar Pro file manipulation via MCP (Model Context Protocol).
 - Repeat Start/End with alternate endings
 - Tempo Changes
 
+### Analysis
+- Key detection via `music21`
+- Chord analysis for a track
+- Pitch range analysis for a track
+
 ### Convenience
 - 30+ Chord shortcuts
 - 6 Riff templates (metal/rock patterns)
@@ -38,6 +43,8 @@ Full-featured Guitar Pro file manipulation via MCP (Model Context Protocol).
 cd guitar-pro-mcp
 uv sync
 ```
+
+This release adds a `music21` dependency for symbolic music analysis tools.
 
 ## Claude Desktop Config
 
@@ -78,6 +85,24 @@ gp_set_repeat(measure=7, repeat_type="end", count=2)
 ```
 gp_load("/path/to/song.gp5")
 gp_export_musicxml("/path/to/song.xml")
+```
+
+### Analyze Key
+```
+gp_load("/path/to/song.gp5")
+gp_analyze_key()
+```
+
+### Analyze Chords
+```
+gp_load("/path/to/song.gp5")
+gp_analyze_chords(track_index=0)
+```
+
+### Analyze Range
+```
+gp_load("/path/to/song.gp5")
+gp_analyze_range(track_index=0)
 ```
 
 ## License

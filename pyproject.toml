@@ -1,11 +1,12 @@
 [project]
 name = "guitar-pro-mcp"
-version = "3.0.0"
+version = "3.0.1"
 description = "Guitar Pro MCP Server - Full featured GP file manipulation"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "mcp[cli]>=1.2.0",
+    "music21>=9.7.1",
     "pyguitarpro>=0.10",
 ]
 

@@ -324,6 +324,26 @@ def gp_get_statistics() -> Dict[str, Any]:
 
 
 # =============================================================================
+# ANALYSIS
+# =============================================================================
+
+@mcp.tool()
+def gp_analyze_key() -> Dict[str, Any]:
+    """Analyze the current song key using music21."""
+    return get_controller().analyze_key()
+
+@mcp.tool()
+def gp_analyze_chords(track_index: int = 0) -> Dict[str, Any]:
+    """Analyze harmonic content for a track using music21."""
+    return get_controller().analyze_chords(track_index)
+
+@mcp.tool()
+def gp_analyze_range(track_index: int = 0) -> Dict[str, Any]:
+    """Analyze pitch range for a track using music21."""
+    return get_controller().analyze_range(track_index)
+
+
+# =============================================================================
 # LISTS
 # =============================================================================
 

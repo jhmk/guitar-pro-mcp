@@ -1144,10 +1144,46 @@ class GuitarProController:
             ts.append({"name": track.name, "notes": cnt, "measures": len(track.measures)})
         return {"title": self.song.title, "total_notes": tn, "tracks": ts,
                 "measures": len(self.song.measureHeaders), "tempo": self.song.tempo}
+
+    # =========================================================================
+    # MUSIC21 ANALYSIS
+    # =========================================================================
+
+    def analyze_key(self) -> Dict[str, Any]:
+        score = self._to_music21_score()
+        from .music21_analysis import analyze_key
+        return analyze_key(score)
+
+    def analyze_chords(self, track_index: int = 0) -> Dict[str, Any]:
+        self._require_track(track_index)
+        score = self._to_music21_score()
+        from .music21_analysis import analyze_chords
+        return analyze_chords(score, track_index)
+
+    def analyze_range(self, track_index: int = 0) -> Dict[str, Any]:
+        self._require_track(track_index)
+        score = self._to_music21_score()
+        from .music21_analysis import analyze_range
+        return analyze_range(score, track_index)
     
     # =========================================================================
     # INTERNAL
     # =========================================================================
+
+    def _require_song(self) -> Song:
+        if not self.song:
+            raise ValueError("No song loaded")
+        return self.song
+
+    def _require_track(self, track_index: int):
+        song = self._require_song()
+        if track_index < 0 or track_index >= len(song.tracks):
+            raise ValueError("Invalid track")
+        return song.tracks[track_index]
+
+    def _to_music21_score(self):
+        from .music21_adapter import song_to_score
+        return song_to_score(self._require_song())
     
     def _set_track_tuning(self, track: Track, tuning: str):
         if tuning not in TUNINGS: tuning = "standard"
