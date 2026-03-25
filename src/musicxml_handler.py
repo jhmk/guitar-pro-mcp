@@ -311,12 +311,12 @@ class MusicXMLImporter:
                     track_data["instrument"] = int(midi_prog.text) - 1
             
             # Parse measures
-            current_time = 0
             measure_num = 0
             
             for measure in part.findall(f'{ns}measure'):
                 measure_num += 1
                 beat_in_measure = 0
+                measure_time_divisions = 0
                 
                 # Get divisions
                 divisions_elem = measure.find(f'.//{ns}divisions')
@@ -363,23 +363,24 @@ class MusicXMLImporter:
                         is_rest = elem.find(f'{ns}rest') is not None or elem.find('rest') is not None
                         
                         # Get duration
-                        dur_elem = elem.find(f'{ns}duration') or elem.find('duration')
+                        dur_elem = self._find_first(elem, f'{ns}duration', 'duration')
                         duration_divs = int(dur_elem.text) if dur_elem is not None else self.divisions
                         gp_duration = self._divisions_to_gp_duration(duration_divs)
                         
                         if is_rest:
                             if not is_chord:
+                                measure_time_divisions += duration_divs
                                 beat_in_measure += 1
                             continue
                         
                         # Get pitch
-                        pitch_elem = elem.find(f'{ns}pitch') or elem.find('pitch')
+                        pitch_elem = self._find_first(elem, f'{ns}pitch', 'pitch')
                         if pitch_elem is None:
                             continue
                         
-                        step = pitch_elem.find(f'{ns}step') or pitch_elem.find('step')
-                        octave = pitch_elem.find(f'{ns}octave') or pitch_elem.find('octave')
-                        alter_elem = pitch_elem.find(f'{ns}alter') or pitch_elem.find('alter')
+                        step = self._find_first(pitch_elem, f'{ns}step', 'step')
+                        octave = self._find_first(pitch_elem, f'{ns}octave', 'octave')
+                        alter_elem = self._find_first(pitch_elem, f'{ns}alter', 'alter')
                         
                         if step is None or octave is None:
                             continue
@@ -388,8 +389,8 @@ class MusicXMLImporter:
                         midi_note = self._pitch_to_midi(step.text, alter, int(octave.text))
                         
                         # Get string/fret if available (from technical)
-                        string_elem = elem.find(f'.//{ns}string') or elem.find('.//string')
-                        fret_elem = elem.find(f'.//{ns}fret') or elem.find('.//fret')
+                        string_elem = self._find_first(elem, f'.//{ns}string', './/string')
+                        fret_elem = self._find_first(elem, f'.//{ns}fret', './/fret')
                         
                         if string_elem is not None and fret_elem is not None:
                             string = int(string_elem.text)
@@ -402,10 +403,24 @@ class MusicXMLImporter:
                             "track": part_idx,
                             "measure": measure_num - 1,
                             "beat": beat_in_measure,
+                            "start_ticks": self._divisions_to_ticks(duration_divs=measure_time_divisions),
                             "string": string,
                             "fret": fret,
                             "duration": gp_duration
                         }
+
+                        if elem.find(f'{ns}dot') is not None or elem.find('dot') is not None:
+                            note_data["is_dotted"] = True
+
+                        time_mod = self._find_first(elem, f'{ns}time-modification', 'time-modification')
+                        if time_mod is not None:
+                            actual_notes = self._find_first(time_mod, f'{ns}actual-notes', 'actual-notes')
+                            normal_notes = self._find_first(time_mod, f'{ns}normal-notes', 'normal-notes')
+                            if actual_notes is not None and normal_notes is not None:
+                                note_data["tuplet"] = {
+                                    "enters": int(actual_notes.text),
+                                    "times": int(normal_notes.text),
+                                }
                         
                         # Check for effects
                         if elem.find(f'.//{ns}staccato') is not None or elem.find('.//staccato') is not None:
@@ -420,11 +435,12 @@ class MusicXMLImporter:
                         track_data["notes"].append(note_data)
                         
                         if not is_chord:
+                            measure_time_divisions += duration_divs
                             beat_in_measure += 1
                 
             result["tracks"].append(track_data)
-        
-        return result
+
+        return self._normalize_with_music21(path, result)
     
     def _pitch_to_midi(self, step: str, alter: int, octave: int) -> int:
         """Convert pitch name to MIDI note."""
@@ -468,6 +484,113 @@ class MusicXMLImporter:
             return 16  # sixteenth
         else:
             return 32  # thirty-second
+
+    def _find_first(self, element, *paths):
+        for path in paths:
+            found = element.find(path)
+            if found is not None:
+                return found
+        return None
+
+    def _divisions_to_ticks(self, duration_divs: int) -> int:
+        if self.divisions == 0:
+            return 0
+        return int(round((duration_divs / self.divisions) * 960))
+
+    def _normalize_with_music21(self, path: str, parsed_result: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            from music21 import converter, stream, tempo
+        except Exception:
+            return parsed_result
+
+        try:
+            score = converter.parse(path)
+        except Exception:
+            return parsed_result
+
+        if getattr(score, "metadata", None) is not None:
+            if not parsed_result.get("title") and getattr(score.metadata, "title", None):
+                parsed_result["title"] = score.metadata.title
+            if not parsed_result.get("artist") and getattr(score.metadata, "composer", None):
+                parsed_result["artist"] = score.metadata.composer
+
+        tempo_marks = list(score.recurse().getElementsByClass(tempo.MetronomeMark))
+        for mark in tempo_marks:
+            if getattr(mark, "number", None) is not None:
+                parsed_result["tempo"] = int(mark.number)
+                break
+
+        normalized_tracks = [self._part_to_normalized_notes(part, track_index) for track_index, part in enumerate(score.parts)]
+        if len(normalized_tracks) != len(parsed_result["tracks"]):
+            return parsed_result
+
+        for track_data, normalized_notes in zip(parsed_result["tracks"], normalized_tracks):
+            if len(track_data["notes"]) != len(normalized_notes):
+                continue
+            for note_data, normalized_data in zip(track_data["notes"], normalized_notes):
+                note_data["measure"] = normalized_data["measure"]
+                note_data["voice"] = normalized_data["voice"]
+                note_data["beat"] = normalized_data["beat"]
+                note_data["start_ticks"] = normalized_data["start_ticks"]
+                if not note_data.get("is_dotted") and not note_data.get("tuplet"):
+                    note_data["duration"] = normalized_data["duration"]
+                if normalized_data.get("is_dotted") and not note_data.get("is_dotted"):
+                    note_data["is_dotted"] = True
+                if normalized_data.get("tuplet") and not note_data.get("tuplet"):
+                    note_data["tuplet"] = normalized_data["tuplet"]
+
+        return parsed_result
+
+    def _part_to_normalized_notes(self, part, track_index: int) -> List[Dict[str, Any]]:
+        from music21 import stream
+        from .music21_reverse import quarter_length_to_gp_duration
+
+        normalized: List[Dict[str, Any]] = []
+        measures = list(part.getElementsByClass(stream.Measure))
+
+        for measure_index, measure in enumerate(measures):
+            voices = list(measure.getElementsByClass(stream.Voice))
+            if not voices:
+                synthetic_voice = stream.Voice(id=f"musicxml-{measure_index}")
+                for element in measure.notesAndRests:
+                    synthetic_voice.insert(float(element.offset), element)
+                voices = [synthetic_voice]
+
+            for voice_index, voice in enumerate(voices):
+                for element in voice.notesAndRests:
+                    if getattr(element, "isRest", False):
+                        continue
+
+                    duration_obj = getattr(element, "duration", None)
+                    quarter_length = float(duration_obj.quarterLength) if duration_obj is not None else 1.0
+                    duration_value = quarter_length_to_gp_duration(quarter_length)
+                    start_ticks = int(round(float(element.offset) * 960))
+                    beat_offset = (float(start_ticks) / 960.0) / max(quarter_length, 0.0625)
+                    beat_index = max(0, int(round(beat_offset)))
+                    tuplet = None
+                    tuplets = list(getattr(duration_obj, "tuplets", [])) if duration_obj is not None else []
+                    if tuplets:
+                        tuplet = {
+                            "enters": int(tuplets[0].numberNotesActual),
+                            "times": int(tuplets[0].numberNotesNormal),
+                        }
+
+                    pitch_count = len(getattr(element, "pitches", [])) or 1
+                    for _ in range(pitch_count):
+                        normalized.append(
+                            {
+                                "track": track_index,
+                                "measure": measure_index,
+                                "voice": voice_index,
+                                "beat": beat_index,
+                                "start_ticks": start_ticks,
+                                "duration": duration_value,
+                                "is_dotted": bool(getattr(duration_obj, "dots", 0)),
+                                "tuplet": tuplet,
+                            }
+                        )
+
+        return normalized
 
 
 def export_musicxml(song, path: str):

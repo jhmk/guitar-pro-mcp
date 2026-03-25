@@ -40,6 +40,7 @@ env/
 # Local development
 .env.local
 .env.*.local
+project-todo.md
 
 # OS
 Thumbs.db
@@ -47,5 +48,4 @@ Thumbs.db
 # uv
 .uv/
 .uv.lock
-
 

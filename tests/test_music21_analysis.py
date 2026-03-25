@@ -46,6 +46,21 @@ class Music21AnalysisTests(unittest.TestCase):
         self.assertEqual(result["highest_pitch"], "E5")
         self.assertEqual(result["note_count"], 2)
 
+    def test_analyze_chords_handles_triplet_material(self):
+        self.controller.create("Triplets", tempo=120)
+        self.controller.add_note(0, 0, 0, 6, 0, 8)
+        self.controller.add_note(0, 0, 1, 5, 2, 8)
+        self.controller.add_note(0, 0, 2, 4, 2, 8)
+
+        for beat in self.controller.song.tracks[0].measures[0].voices[0].beats[:3]:
+            beat.duration.tuplet.enters = 3
+            beat.duration.tuplet.times = 2
+
+        result = self.controller.analyze_chords(0)
+
+        self.assertEqual(result["source"], "music21")
+        self.assertTrue(result["chords"])
+
 
 if __name__ == "__main__":
     unittest.main()

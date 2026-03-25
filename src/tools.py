@@ -342,6 +342,18 @@ def gp_analyze_range(track_index: int = 0) -> Dict[str, Any]:
     """Analyze pitch range for a track using music21."""
     return get_controller().analyze_range(track_index)
 
+@mcp.tool()
+def gp_get_music21_note_events(track_index: int = 0, strategy: str = "lowest_fret",
+                               max_fret: int = 24) -> Dict[str, Any]:
+    """Convert a track through music21 and return GP note events."""
+    return get_controller().get_music21_note_events(track_index, strategy, max_fret)
+
+@mcp.tool()
+def gp_rewrite_track_from_music21(track_index: int = 0, strategy: str = "lowest_fret",
+                                  max_fret: int = 24) -> Dict[str, Any]:
+    """Rewrite a track from its music21 representation using tuning-aware fingering."""
+    return get_controller().rewrite_track_from_music21(track_index, strategy, max_fret)
+
 
 # =============================================================================
 # LISTS

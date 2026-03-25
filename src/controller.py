@@ -646,12 +646,13 @@ class GuitarProController:
         
         grouped: Dict[Tuple[int,int,int,int], List[Dict]] = {}
         for n in notes:
+            beat_key = int(n["start_ticks"]) if n.get("start_ticks") is not None else int(n.get("beat", 0))
             key = (int(n.get("track", 0)), int(n.get("measure", 0)),
-                   int(n.get("voice", 0)), int(n.get("beat", 0)))
+                   int(n.get("voice", 0)), beat_key)
             grouped.setdefault(key, []).append(n)
         
-        for (ti, mi, vi, bi) in sorted(grouped.keys()):
-            nl = grouped[(ti, mi, vi, bi)]
+        for (ti, mi, vi, beat_key) in sorted(grouped.keys()):
+            nl = grouped[(ti, mi, vi, beat_key)]
             if ti >= len(self.song.tracks): continue
             track = self.song.tracks[ti]
             
@@ -662,18 +663,38 @@ class GuitarProController:
             while vi >= len(measure.voices):
                 measure.voices.append(Voice(measure))
             voice = measure.voices[vi]
-            
-            while bi >= len(voice.beats):
-                nb = Beat(voice)
-                nb.duration = Duration()
-                nb.duration.value = nl[0].get("duration", 4)
-                nb.start = len(voice.beats) * 960
-                voice.beats.append(nb)
-            
-            beat = voice.beats[bi]
+
+            explicit_start = nl[0].get("start_ticks")
+            beat = None
+            if explicit_start is not None:
+                start_ticks = int(explicit_start)
+                for existing_beat in voice.beats:
+                    if int(getattr(existing_beat, "start", -1)) == start_ticks:
+                        beat = existing_beat
+                        break
+                if beat is None:
+                    beat = Beat(voice)
+                    beat.start = start_ticks
+                    voice.beats.append(beat)
+                    voice.beats.sort(key=lambda current_beat: int(getattr(current_beat, "start", 0)))
+            else:
+                bi = int(nl[0].get("beat", 0))
+                while bi >= len(voice.beats):
+                    nb = Beat(voice)
+                    nb.duration = Duration()
+                    nb.duration.value = nl[0].get("duration", 4)
+                    nb.start = len(voice.beats) * 960
+                    voice.beats.append(nb)
+                beat = voice.beats[bi]
+
             if beat.duration is None:
                 beat.duration = Duration()
             beat.duration.value = nl[0].get("duration", 4)
+            beat.duration.isDotted = bool(nl[0].get("is_dotted", False))
+            tuplet = nl[0].get("tuplet")
+            if tuplet:
+                beat.duration.tuplet.enters = int(tuplet.get("enters", 1))
+                beat.duration.tuplet.times = int(tuplet.get("times", 1))
             
             for n in nl:
                 note = Note(beat)
@@ -1165,6 +1186,57 @@ class GuitarProController:
         score = self._to_music21_score()
         from .music21_analysis import analyze_range
         return analyze_range(score, track_index)
+
+    def get_music21_note_events(
+        self,
+        track_index: int = 0,
+        strategy: str = "lowest_fret",
+        max_fret: int = 24,
+    ) -> Dict[str, Any]:
+        self._require_track(track_index)
+        score = self._to_music21_score()
+        from .music21_reverse import part_to_note_events
+
+        return {
+            "track": track_index,
+            "notes": part_to_note_events(
+                score.parts[track_index],
+                track_index=track_index,
+                tuning_midi=self._get_track_tuning_midi(track_index),
+                strategy=strategy,
+                max_fret=max_fret,
+            ),
+            "source": "music21",
+        }
+
+    def rewrite_track_from_music21(
+        self,
+        track_index: int = 0,
+        strategy: str = "lowest_fret",
+        max_fret: int = 24,
+    ) -> Dict[str, Any]:
+        track = self._require_track(track_index)
+        score = self._to_music21_score()
+        from .music21_reverse import part_to_gp_track_data, write_gp_track_data_to_track
+
+        track_data = part_to_gp_track_data(
+            score.parts[track_index],
+            tuning_midi=self._get_track_tuning_midi(track_index),
+            strategy=strategy,
+            max_fret=max_fret,
+        )
+
+        measure_count = int(track_data["measure_count"])
+        while len(self.song.measureHeaders) < measure_count:
+            self._add_measure_header()
+
+        notes_written = write_gp_track_data_to_track(track, track_data)
+        return {
+            "track": track_index,
+            "notes_written": notes_written,
+            "measures": measure_count,
+            "source": "music21",
+        }
     
     # =========================================================================
     # INTERNAL
@@ -1184,6 +1256,10 @@ class GuitarProController:
     def _to_music21_score(self):
         from .music21_adapter import song_to_score
         return song_to_score(self._require_song())
+
+    def _get_track_tuning_midi(self, track_index: int) -> List[int]:
+        track = self._require_track(track_index)
+        return [string.value for string in sorted(track.strings, key=lambda string: string.number)]
     
     def _set_track_tuning(self, track: Track, tuning: str):
         if tuning not in TUNINGS: tuning = "standard"
